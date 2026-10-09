@@ -1,0 +1,5 @@
+repo: https://github.com/containers/crun#main
+primary_contact: security@oci.run
+homepage: https://github.com/containers/crun
+dockerfile: .oss-scanner/Dockerfile
+threat_model: THREAT_MODEL.md
