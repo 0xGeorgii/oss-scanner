@@ -1,0 +1,5 @@
+repo: https://github.com/anchore/syft#main
+primary_contact: security@anchore.com
+auto_ccs:
+  - opensource@anchore.com
+homepage: https://github.com/anchore/syft
