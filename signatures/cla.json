@@ -1927,6 +1927,14 @@
       "created_at": "2026-10-11T09:16:57Z",
       "repoId": 1410719150,
       "pullRequestNo": 420
+    },
+    {
+      "name": "samoylenkodmitry",
+      "id": 2128250,
+      "comment_id": 6107988654,
+      "created_at": "2026-10-11T10:17:35Z",
+      "repoId": 1410719150,
+      "pullRequestNo": 419
     }
   ]
 }
