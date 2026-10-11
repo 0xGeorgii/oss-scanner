@@ -2079,6 +2079,14 @@
       "created_at": "2026-10-11T18:21:29Z",
       "repoId": 1410719150,
       "pullRequestNo": 470
+    },
+    {
+      "name": "gaborbernat",
+      "id": 690238,
+      "comment_id": 6112334147,
+      "created_at": "2026-10-11T18:36:54Z",
+      "repoId": 1410719150,
+      "pullRequestNo": 473
     }
   ]
 }
