@@ -39,7 +39,7 @@ import validate
 API = "https://api.github.com"
 RAW = "application/vnd.github.raw"
 MAX_RATE_LIMIT_WAIT = 65  # seconds
-# No answer we need is larger. A file we only search (a license, a security policy) is read up to the smaller limit.
+# A larger answer is refused. A file we only search (a license, a security policy) is read up to the smaller limit.
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_TEXT_BYTES = 256 * 1024
 # The workflow finds the comment to update by this first line.
@@ -118,6 +118,10 @@ TOP_CONTRIBUTORS = 15
 # The company each of these accounts gives on its profile. One request, where the REST API takes one per account:
 # the workflow's token is allowed 1,000 requests an hour.
 COMPANIES = "query($ids: [ID!]!) { nodes(ids: $ids) { ... on User { company } } }"
+# When the repository's latest releases were made. The REST API lists every asset of every release with them: tens
+# of megabytes for a project that has many of both.
+RECENT_RELEASES = """query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+  releases(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { createdAt } } } }"""
 ISSUE_WINDOW_DAYS = 90
 
 
@@ -180,11 +184,14 @@ class GitHub:
         for last_try in (False, True):
             try:
                 with self.opener.open(request, timeout=30) as response:
-                    answer, length = response.read(limit), response.headers.get("Content-Length")
+                    answer, length = response.read(limit + 1), response.headers.get("Content-Length")
                     # Unlike a read to the end, a read of n bytes does not notice a connection that was cut off.
                     if length and length.isdigit() and len(answer) < min(int(length), limit):
                         raise http.client.IncompleteRead(answer)
-                    return answer, response.headers.get("Link") or ""
+                    # The start of a text is of use, the start of a JSON answer is not: asking again will not help.
+                    if len(answer) > limit and accept != RAW:
+                        raise ApiError(0, path, "answer too large")
+                    return answer[:limit], response.headers.get("Link") or ""
             except urllib.error.HTTPError as error:
                 delay = retry_delay(error)
                 if last_try or delay is None:
@@ -623,8 +630,9 @@ def criticality_signals(gh: GitHub, slug: str, meta: dict) -> dict[str, float]:
         if company:
             organisations.add(re.sub(r"inc\.|llc|@|\s", "", company.lower()).rstrip(","))
 
-    releases = gh.get(f"repos/{slug}/releases", per_page=100)
-    recent_releases = sum(1 for release in releases if parse_time(release["created_at"]) > YEAR_AGO)
+    owner, name = slug.split("/")
+    releases = gh.graphql(RECENT_RELEASES, owner=owner, name=name)["repository"]["releases"]["nodes"]
+    recent_releases = sum(1 for release in releases if parse_time(release["createdAt"]) > YEAR_AGO)
     if not releases:
         # A project that tags without publishing releases: assume its tags are spread evenly over its life.
         recent_releases = round(gh.count(f"repos/{slug}/tags") / max((NOW - created).days, 1) * 365)
