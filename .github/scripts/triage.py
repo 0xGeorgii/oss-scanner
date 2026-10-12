@@ -318,6 +318,12 @@ def ago(when: datetime) -> str:
     return f"{days // 365} years ago"
 
 
+def ordinal(place: int) -> str:
+    """A place in a list, as 1st or 2,652nd. Not as #2652: GitHub would link that to the pull request of that number."""
+    suffix = "th" if 10 <= place % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th")
+    return f"{place:,}{suffix}"
+
+
 # --- reading the pull request and the repository ---
 
 
@@ -778,7 +784,7 @@ def package_rank_row(gh: GitHub, slug: str) -> tuple[str, str]:
     if not ranks:
         return INFO, "no Python, JavaScript or Rust in the repository, so not looked for on PyPI, npm or crates.io"
 
-    found = [f"{code(rank[0])} is #{rank[1]:,} on {registry}" for registry, rank, _ in ranks if rank]
+    found = [f"{code(rank[0])} is {ordinal(rank[1])} on {registry}" for registry, rank, _ in ranks if rank]
     missing = [f"the top {looked_at:,} on {registry}" for registry, rank, looked_at in ranks if not rank]
     if missing:
         found.append(f"nothing from this repository found in {' or '.join(missing)}")
