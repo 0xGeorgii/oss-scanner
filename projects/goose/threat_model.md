@@ -43,8 +43,10 @@ impact and distinguish an upstream defect from Goose's integration.
 The Dockerfile retains the checkout at /src, the Rust toolchain selected by
 rust-toolchain.toml, Cargo's dependency cache, compiled workspace binaries and
 tests in target/debug, Node.js 24, pnpm, UI dependencies, and a packaged Linux
-desktop application under ui/desktop/out. Rust tests are compiled during the
-online setup so offline analysis can use their executables directly.
+desktop application under ui/desktop/out. The four focused Rust security test
+suites listed below are compiled during the online setup so offline analysis can
+use their executables directly. Cargo dependencies for the rest of the workspace
+are fetched during setup as well.
 
 Useful commands from /src in the offline scanner environment:
 
