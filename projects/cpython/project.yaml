@@ -4,4 +4,3 @@ auto_ccs:
   - greg@krypto.org
   - seth@python.org
 homepage: https://www.python.org
-threat_model: .github/SECURITY.md
