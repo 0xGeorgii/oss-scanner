@@ -52,8 +52,15 @@ OK, WARN, FAIL, INFO = "✅", "⚠️", "❌", "ℹ️"
 NOW = datetime.now(timezone.utc)
 YEAR_AGO = NOW - timedelta(days=365)
 # "Established", "active" and "critical" have no published numbers. These only decide when a row gets a warning.
-ESTABLISHED_MONTHS = 12
+ESTABLISHED_MONTHS = 6
 STALE_MONTHS = 12
+# How many of a repository's latest issues, and of its latest pull requests, are looked at for who opened them.
+RECENT_THREADS = 50
+# Whoever wrote this many of the last 100 commits is part of the project, whatever role GitHub shows for them.
+REGULAR_COMMITS = 5
+# Fewer people than this from outside the project among those who opened the latest issues and pull requests is
+# warned about. One person can open hundreds of either in a repository of their own; they cannot be other people.
+FEW_OUTSIDERS = 3
 # A project below both is warned about. Either alone is not: a busy young project scores well with few stars, and
 # a quiet, widely used one has the stars but a middling score.
 FEW_STARS = 100
@@ -85,6 +92,13 @@ ASSOCIATIONS = {
 RECENT_MERGES = """query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
   pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
     nodes { mergedBy { login } } } } }"""
+# Who opened the repository's latest issues and pull requests, and who wrote its latest commits.
+PARTICIPANTS = """query($owner: String!, $name: String!, $threads: Int!) { repository(owner: $owner, name: $name) {
+  issues(first: $threads, orderBy: {field: CREATED_AT, direction: DESC}) {
+    nodes { authorAssociation author { __typename login } } }
+  pullRequests(first: $threads, orderBy: {field: CREATED_AT, direction: DESC}) {
+    nodes { authorAssociation author { __typename login } } }
+  defaultBranchRef { target { ... on Commit { history(first: 100) { nodes { author { user { login } } } } } } } } }"""
 
 # SPDX ids, as GitHub reports them, of the licenses we accept without a second look. BSL-1.0 is the Boost license;
 # the Business Source License is BUSL-1.1, which GitHub does not recognise and reports as "Other".
@@ -445,7 +459,43 @@ def standing_row(meta: dict) -> tuple[str, str]:
 
 
 def popularity_row(meta: dict) -> tuple[str, str]:
-    return INFO, f"{meta['stargazers_count']:,} stars · {meta['forks_count']:,} forks"
+    forks, watchers = meta["forks_count"], meta["subscribers_count"]
+    result = f"{meta['stargazers_count']:,} stars · {forks:,} forks · {watchers:,} watching"
+    absent = [what for what, count in (("forks", forks), ("watchers", watchers)) if not count]
+    if absent:
+        return WARN, f"no {' and no '.join(absent)}: little sign that others use it ({result})"
+    return INFO, result
+
+
+def outsiders_row(gh: GitHub, slug: str, meta: dict, login: str) -> tuple[str, str]:
+    """How many people from outside the project opened its latest issues and pull requests? Not counted: the
+    repository's owner, whoever opened this pull request, anyone GitHub shows as a maintainer, anyone who wrote a
+    good share of the latest commits, and bots."""
+    owner, name = slug.split("/")
+    repository = gh.graphql(PARTICIPANTS, owner=owner, name=name, threads=RECENT_THREADS)["repository"]
+    threads = repository["issues"]["nodes"] + repository["pullRequests"]["nodes"]
+    if not threads:
+        return WARN, "the repository has no issues or pull requests"
+
+    history = ((repository["defaultBranchRef"] or {}).get("target") or {}).get("history") or {"nodes": []}
+    wrote = [((commit["author"] or {}).get("user") or {}).get("login", "").lower() for commit in history["nodes"]]
+    insiders = {meta["owner"]["login"].lower(), login.lower()}
+    insiders |= {person for person in set(wrote) if wrote.count(person) >= REGULAR_COMMITS}
+    outsiders, theirs = set(), 0
+    for thread in threads:
+        author = thread["author"] or {}  # no author: a deleted account
+        person = author.get("login", "").lower()
+        if author.get("__typename") != "User" or thread["authorAssociation"] in ASSOCIATIONS or person in insiders:
+            continue
+        outsiders.add(person)
+        theirs += 1
+
+    result = f"the last {len(threads)} issues and pull requests"
+    if not outsiders:
+        return WARN, f"none: {result} were all opened by the project's own people or by bots"
+    people = "1 person" if len(outsiders) == 1 else f"{len(outsiders)} people"
+    result = f"{people} from outside the project opened {theirs} of {result}"
+    return (WARN if len(outsiders) < FEW_OUTSIDERS else INFO), result
 
 
 def license_row(gh: GitHub, slug: str, meta: dict) -> tuple[str, str]:
@@ -709,6 +759,10 @@ def criticality_score(signals: dict[str, float]) -> float:
 
 
 def criticality_row(gh: GitHub, slug: str, meta: dict) -> tuple[str, str]:
+    if meta["fork"]:
+        # A fork carries its parent's commits and contributors, and would be given the parent's score.
+        parent = (meta.get("parent") or {}).get("full_name")
+        return WARN, f"not scored: a fork of {code(parent)}, whose history it carries"
     signals = criticality_signals(gh, slug, meta)
     score = criticality_score(signals)
     result = f"**{score:.2f}** on the [OpenSSF]({CRITICALITY_SOURCE}) scale of 0 to 1"
@@ -828,6 +882,7 @@ def repository_rows(gh: GitHub, config: dict, beside: set[str], login: str) -> t
     return f"[{slug}]({meta['html_url']})" + (f" at {code(ref)}" if ref else ""), [
         row("Repository", standing_row, meta),
         row("Stars / forks", popularity_row, meta),
+        row("Outside participants", outsiders_row, gh, slug, meta, login),
         row("Criticality score", criticality_row, gh, slug, meta),
         row("Package rank", package_rank_row, gh, slug),
         row("License", license_row, gh, slug, meta),
