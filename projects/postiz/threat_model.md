@@ -38,11 +38,12 @@ libraries/nestjs-libraries/src/database/prisma/schema.prisma.
 The checkout and all development dependencies are retained at /src. The image
 uses Node.js 22 and pnpm 10.6.1, generates Prisma's client before building,
 and runs the upstream build for the frontend, backend, and orchestrator.
-The frontend uses its existing Webpack configuration. Outputs are in
-apps/frontend/.next, apps/backend/dist, and apps/orchestrator/dist.
+The frontend is built as upstream builds it, with Next.js's default bundler
+(Turbopack). Outputs are in apps/frontend/.next, apps/backend/dist, and
+apps/orchestrator/dist.
 From /src, repeat the build with
 pnpm -r --workspace-concurrency=1 --filter ./apps/backend --filter ./apps/orchestrator run build
-and pnpm --filter ./apps/frontend run build --webpack; repeat the upstream test
+and pnpm --filter ./apps/frontend run build; repeat the upstream test
 command with pnpm run test --runInBand. Test failures are reported
 as warnings during the image build and must not be interpreted as passing tests.
 

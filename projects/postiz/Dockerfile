@@ -10,9 +10,11 @@ RUN npm --no-update-notifier --no-fund --global install pnpm@10.6.1
 COPY . /src
 WORKDIR /src
 
+# Node's default heap limit is about 4 GB; let the build use the scanner's 64 GB build machines.
+ENV NODE_OPTIONS=--max-old-space-size=16384
+
 # Local-only settings for reproductions; no production credentials are needed.
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    NODE_OPTIONS=--max-old-space-size=4096 \
     DATABASE_URL=postgresql://postiz:postiz@localhost:5432/postiz \
     REDIS_URL=redis://localhost:6379 \
     JWT_SECRET=oss-scanner-local-only-not-a-production-secret \
@@ -26,13 +28,13 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 
 # Run setup separately so Prisma uses the CLI already pinned in the lockfile,
 # without a second dependency resolution through the upstream pnpm dlx script.
-RUN NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm install --frozen-lockfile --ignore-scripts
 RUN pnpm rebuild bcrypt \
     && pnpm exec prisma generate --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma \
     && pnpm --filter ./apps/frontend run fetch-gtm
 RUN pnpm -r --workspace-concurrency=1 --filter ./apps/backend --filter ./apps/orchestrator run build
-# Use the frontend's existing Webpack configuration and retain its source maps.
-RUN pnpm --filter ./apps/frontend run build --webpack
+# Build the frontend as upstream's own image does, with Next.js's default bundler (Turbopack).
+RUN pnpm --filter ./apps/frontend run build
 
 # Preserve test failures in the build log without preventing security analysis.
 RUN pnpm run test --runInBand || echo "WARNING: Postiz's test command failed; inspect its output above."
