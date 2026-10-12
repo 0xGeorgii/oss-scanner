@@ -1,0 +1,9 @@
+# Unsloth: open-source LLM fine-tuning and reinforcement learning library, plus Unsloth Studio (local web UI and
+# Desktop app for training and running models).
+repo: https://github.com/unslothai/unsloth#main
+
+primary_contact: daniel@unsloth.ai
+
+homepage: https://unsloth.ai
+
+disabled: false
