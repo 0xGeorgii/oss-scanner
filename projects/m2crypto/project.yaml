@@ -1,0 +1,4 @@
+repo: https://codefloe.com/mcepl/m2crypto
+primary_contact: mcepl@cepl.eu
+homepage: https://codefloe.com/mcepl/m2crypto
+dockerfile: .oss-scanner/Dockerfile
