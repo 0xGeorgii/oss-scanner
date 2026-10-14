@@ -1,0 +1,5 @@
+repo: https://github.com/python-social-auth/social-core#master
+primary_contact: michal@weblate.org
+homepage: https://github.com/python-social-auth/social-core
+dockerfile: .oss-scanner/Dockerfile
+threat_model: THREAT_MODEL.md
