@@ -89,7 +89,9 @@ Most important:
 Lower importance, still in scope:
 
 * the sniffer, DTLS multicast, ECH, early data, the external session cache and the persisted caches;
-* rarely used algorithms (ARIA, Camellia, SM2/SM3/SM4, SRP, ...) and post-quantum signatures other than ML-DSA;
+* rarely used algorithms (ARIA, Camellia, SM2/SM3/SM4, SRP, ...) and the post-quantum signatures other than ML-DSA
+  (SLH-DSA, LMS, XMSS). Features that need `--enable-experimental` (Falcon, FrodoKEM, dual-algorithm certificates,
+  ...) are not in these builds and matter least;
 * the hardware and platform ports in `wolfcrypt/src/port/`, and the kernel-module glue in `linuxkm/` and `bsdkm/`.
   They cannot be run in this image: report only what a code trace makes clear, and treat their reach as narrow;
 * the architecture-specific SP files (`sp_x86_64.c`, `sp_arm32.c`, `sp_arm64.c`, `sp_armthumb.c`, `sp_cortexm.c`,
@@ -136,12 +138,13 @@ The image holds two builds of the same commit, both made with clang, AddressSani
 UndefinedBehaviorSanitizer. `$SAN_FLAGS` holds the compiler flags. UBSan's `-fsanitize=function` is off because
 wolfSSL deliberately calls free functions through `void (*)(void*)` casts.
 
-* `/src` is an in-tree debug build, `./configure --enable-all --enable-sniffer --enable-debug`, installed to
+* `/src` is an in-tree debug build, `./configure --enable-all --enable-sniffer --enable-debug --enable-mldsa
+  --enable-slhdsa --enable-lms --enable-xmss` (`--enable-all` leaves those four signature schemes out), installed to
   `/usr/local`. After a change, rebuild with `cd /src && make -j2 && make install && ldconfig`. Because it defines
   `DEBUG_WOLFSSL`, the example programs log every step to stderr.
 * `/opt/wolfssl-default/src` is the default `./configure` build, installed to `/opt/wolfssl-default`. Use it to
-  check whether a defect is reachable in a default build, which the policy weighs heavily. A change made in `/src`
-  must be applied here too before it shows up in this build.
+  check whether a defect is reachable in a default build, which the policy weighs heavily. It has ML-KEM but none of
+  the post-quantum signatures. A change made in `/src` must be applied here too before it shows up in this build.
 
 Run things from `/src`, because the examples and tests load `./certs/`:
 

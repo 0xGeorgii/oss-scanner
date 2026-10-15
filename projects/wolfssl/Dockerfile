@@ -9,7 +9,8 @@
 #   /src                  in-tree debug build, clang with AddressSanitizer + UndefinedBehaviorSanitizer,
 #                         configured with --enable-all --enable-sniffer: TLS 1.2/1.3, DTLS 1.2/1.3, QUIC, ECH,
 #                         early data, session tickets, OCSP/CRL, the OpenSSL compatibility layer, PKCS#7/CMS,
-#                         ML-KEM/ML-DSA and the rest. Gives libwolfssl, examples/client/client,
+#                         ML-KEM and the rest, plus the post-quantum signatures --enable-all leaves out (ML-DSA,
+#                         SLH-DSA, LMS, XMSS). Gives libwolfssl, examples/client/client,
 #                         examples/server/server, tests/unit.test, testsuite/testsuite.test,
 #                         wolfcrypt/test/testwolfcrypt and sslSniffer/sslSnifferTest/snifftest.
 #                         Installed to /usr/local.
@@ -64,6 +65,7 @@ RUN ./autogen.sh \
 # Tree 1, /src: everything on, debug logging available (wolfSSL_Debugging_ON()), sanitizers. A failing step
 # here fails the image, and primary_contact gets the log.
 RUN ./configure --enable-all --enable-sniffer --enable-debug \
+      --enable-mldsa --enable-slhdsa --enable-lms --enable-xmss \
       CFLAGS="$SAN_FLAGS" LDFLAGS="-fsanitize=address,undefined" \
     && make -j"$(nproc)" \
     && make install && ldconfig \
@@ -94,6 +96,9 @@ RUN set -eu; \
     for bin in examples/client/client examples/server/server tests/unit.test testsuite/testsuite.test \
                wolfcrypt/test/testwolfcrypt sslSniffer/sslSnifferTest/snifftest; do \
         [ -x "/src/$bin" ] || fail "/src/$bin is missing"; \
+    done; \
+    for macro in WOLFSSL_HAVE_MLDSA WOLFSSL_HAVE_SLHDSA WOLFSSL_HAVE_LMS WOLFSSL_HAVE_XMSS; do \
+        grep -qw "#define $macro" /usr/local/include/wolfssl/options.h || fail "$macro is not set in the /src build"; \
     done; \
     printf '%s\n' '#include <wolfssl/options.h>' '#include <wolfssl/ssl.h>' \
         'int main(void) {' \
