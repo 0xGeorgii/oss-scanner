@@ -536,8 +536,8 @@ def license_row(gh: GitHub, slug: str, meta: dict) -> tuple[str, str]:
 
 
 def push_evidence(gh: GitHub, slug: str, login: str) -> dict:
-    """What shows whether an account can push to the repository. `shown` lists what GitHub itself says of it;
-    `denied` is true when all GitHub says is that it cannot; `listed` is the project's file that names it, if any."""
+    """What shows whether an account can push to the repository. `shown` lists what GitHub itself says for it;
+    `denied` is true when GitHub says that it cannot now; `listed` is the project's file that names it, if any."""
     owner, name = slug.split("/")
     reviewed = f"repo:{slug} is:pr reviewed-by:{login}"
     found = gh.graphql(PUSH_EVIDENCE, owner=owner, name=name, login=login, reviewed=reviewed)
@@ -568,7 +568,7 @@ def push_evidence(gh: GitHub, slug: str, login: str) -> dict:
         shown.append("reviews as someone who can push")
     return {
         "shown": shown,
-        "denied": not shown and flags == {False},
+        "denied": flags == {False},
         "listed": listed[0] if listed else None,
         "merged_lately": sum(1 for pull in theirs if parse_time(pull["mergedAt"]) > YEAR_AGO),
         "merges": len(merges),
@@ -610,24 +610,27 @@ def maintainer_row(gh: GitHub, slug: str, meta: dict, login: str) -> tuple[str, 
     role = ", ".join(roles) or "no maintainer role visible"
     activity = f"{commits} commits in the last 12 months; {rank}"
 
+    named = f"named in {code(push['listed'])}" if push["listed"] else None
+    if push["denied"] and not owns:
+        # What GitHub says of their reviews is how things stand now. It outweighs pull requests they merged while
+        # they still could, and a list of maintainers that may not have been kept up.
+        note = "GitHub shows their reviews as from someone who cannot push to the repository"
+        past = "; ".join(part for part in [role, *push["shown"], named, activity] if part)
+        return WARN, f"{note}: a core maintainer should confirm ({past})"
+
     # The project's list of maintainers is text that a name was looked for in. It backs up what GitHub shows, a role
-    # included; alone it proves nothing, and it does not outweigh GitHub saying that they cannot push.
+    # included; alone it proves nothing.
     proof = list(push["shown"])
-    if push["listed"]:
-        named = f"named in {code(push['listed'])}"
-        if proof or (roles and not push["denied"]):
-            proof.append(named)
-        else:
-            activity += f"; {named}"
+    if named and (proof or roles):
+        proof.append(named)
+    elif named:
+        activity += f"; {named}"
 
     if owns or proof:
         evidence = "; ".join([role, *proof, activity])
         if recent or push["merged_lately"]:
             return OK, evidence
         return WARN, f"can push, but has not committed or merged in the last 12 months ({evidence})"
-    if push["denied"]:
-        note = "GitHub shows their reviews as from someone who cannot push to the repository"
-        return WARN, f"{note}: a core maintainer should confirm ({role}; {activity})"
     if roles and (recent or push["wrote"]):
         # In a repository that works by pull requests, a maintainer leaves a trace in merging or reviewing them.
         if push["merges"] and push["wrote"] < REGULAR_COMMITS:
