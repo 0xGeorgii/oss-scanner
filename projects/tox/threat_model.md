@@ -3,8 +3,6 @@
 The reporting policy is `.github/SECURITY.md`. Submit vulnerabilities through GitHub private vulnerability reporting or
 the Tidelift contact described there; do not open a public issue.
 
-
-
 ## What tox does and where untrusted input enters
 
 tox reads `tox.ini` or `pyproject.toml`, selects Python interpreters, creates and reuses environments, builds the
@@ -34,8 +32,6 @@ virtualenv, python-discovery and pyproject-api are adjacent trust domains. Their
 that the user selected, a configured build backend and a user-owned cache. A report against tox should identify the
 unsafe argument, path or result handling that tox adds around those dependencies.
 
-
-
 ## Components to prioritize
 
 Review `execute/` for argv construction, Windows quoting, shell selection, working directories, interrupts, terminal
@@ -55,8 +51,6 @@ and journals must not expose credentials that match tox's documented redaction r
 Tests, documentation and release automation are not production entry points. Use them as fixtures and regression
 locations, not as the sole affected code.
 
-
-
 ## How to exercise the image
 
 The checkout is at `/src`; the image installs tox in `/opt/venv` with the completion extra and test dependency group.
@@ -66,8 +60,6 @@ create temporary projects without network access.
 A useful reproducer is a minimal project containing one tox environment and only the crafted value needed for the issue.
 Place sentinels inside and outside `.tox`, record the spawned argv, and show any filesystem effect or disclosed value.
 Run permission and cross-user cases as an unprivileged account because the scanner shell is root.
-
-
 
 ## Severity
 
@@ -81,8 +73,6 @@ Run permission and cross-user cases as an unprivileged account because the scann
   data outside the project workspace.
 - Low: a crash, hang, terminal effect without demonstrated code execution, or corruption limited to the disposable tox
   environment.
-
-
 
 ## Reports and exclusions
 
