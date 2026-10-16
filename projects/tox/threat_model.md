@@ -5,10 +5,11 @@ the Tidelift contact described there; do not open a public issue.
 
 ## What tox does and where untrusted input enters
 
-tox reads `tox.ini` or `pyproject.toml`, selects Python interpreters, creates and reuses environments, builds the
-project, installs packages and runs configured commands. Configuration loading lives under `src/tox/config/`;
-environment selection under `session/`; package construction under `tox_env/package/`; installation in
-`tox_env/installer.py`; command execution under `execute/`; and automatic self-provisioning in `provision.py`.
+tox reads project configuration from `tox.ini`, `setup.cfg`, `pyproject.toml` (native `[tool.tox]` TOML or deprecated
+`legacy_tox_ini`), or `tox.toml`. It selects Python interpreters, creates and reuses environments, builds the project,
+installs packages and runs configured commands. Configuration loading lives under `src/tox/config/`; environment
+selection under `session/`; package construction under `tox_env/package/`; installation in `tox_env/installer.py`;
+command execution under `execute/`; and automatic self-provisioning in `provision.py`.
 
 Project configuration is code. A checkout can name commands, build backends, dependencies, package indexes and plugins
 that execute with the user's privileges. Running tox on an untrusted checkout is therefore equivalent to running that
