@@ -3,8 +3,6 @@
 The project's security policy is `.github/SECURITY.md`. Report findings through the Tidelift security contact named
 there, not through a public issue.
 
-
-
 ## What platformdirs does and where untrusted input enters
 
 platformdirs maps application names to the operating system's conventional data, configuration, cache, state, log,
@@ -29,8 +27,6 @@ Treat existing filesystem entries as hostile when a privileged or long-running p
 another user can modify. A peer can plant or exchange symlinks, files and directories between lookup and creation. State
 which user owns every parent and whether the directory is private, shared or sticky.
 
-
-
 ## Components to prioritize
 
 Start with `PlatformDirsABC` in `api.py`: `_ensure_inside_base`, `_optionally_create_directory`,
@@ -48,8 +44,6 @@ The pytest plugin in `pytest_plugin.py` redirects platform directories during te
 avoid stale values that send a test into the real user's directories. The CLI, documentation and release automation are
 lower priority unless they expose a production-library defect.
 
-
-
 ## How to exercise the image
 
 The repository is at `/src`, installed in editable mode in `/opt/venv`, which is on `PATH`. A built wheel is available
@@ -60,8 +54,6 @@ environment, enable `ensure_exists`, and record the returned path, ownership and
 victim as an unprivileged user and swap a component for a symlink from a second process. Linux tests can instantiate
 platform-specific classes with mocked platform APIs, but a claim about Windows behavior should include a Windows
 reproducer.
-
-
 
 ## Severity
 
@@ -74,8 +66,6 @@ reproducer.
   executable configuration to another local user, or `find_*_file` returns another user's file contrary to its
   documented search order.
 - Low: a crafted value causes a crash, hang or malformed path without crossing a filesystem or user boundary.
-
-
 
 ## Reports and exclusions
 
