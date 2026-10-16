@@ -1,79 +1,94 @@
 # Threat model
 
+The project's security policy is `.github/SECURITY.md`; it supports the latest major and minor release and routes
+private reports through Tidelift.
 
 
-## Scope and untrusted input
 
-pipdeptree discovers installed Python distributions and renders their dependency graph. It can also resolve requirements
-against a package index or read a PEP 751 lock file, then emit text, JSON, CycloneDX, Mermaid, Graphviz or
-Graphviz-rendered binary output. Most parsing and graph construction lives in the PyO3 Rust extension under `rust/src/`;
+## What pipdeptree does and where untrusted input enters
+
+pipdeptree discovers installed Python distributions and renders their dependency graph. It can resolve requirements
+against a package index or read a PEP 751 lock file, then emit text, JSON, CycloneDX, Mermaid, Graphviz source or
+Graphviz-rendered output. Most parsing and graph construction lives in the PyO3 Rust extension under `rust/src/`;
 `src/pipdeptree/_runner.py` connects it to Python streams and the desktop opener.
+
+Like SBOM scanners, pipdeptree should inspect package metadata without importing or executing the installed package.
+Code execution caused by metadata inspection is a security boundary even though installing the package already ran its
+code. Incorrect dependency data from a malicious package is not: pipdeptree reports the metadata it receives.
 
 Treat these inputs as hostile:
 
-- `METADATA`, `direct_url.json`, `RECORD`, `entry_points.txt`, egg-link files and directory names beneath any scanned
-  `site-packages` path;
-- package names, versions, requirements, extras, markers, license fields, URLs and editable/VCS metadata;
-- a PEP 751 TOML lock file and requirements files passed to the subcommands;
-- package-index responses and artifacts inspected during resolution;
-- interpreter paths and the JSON-like data returned by an interpreter queried with `--python`;
-- Graphviz executables and output bytes when a rendered output format is requested;
-- terminal width, encoding and output streams supplied through the Python entry point.
+- `METADATA`, `direct_url.json`, `RECORD`, `entry_points.txt`, egg-link files and names beneath a scanned
+  `site-packages` directory;
+- package names, versions, requirements, extras, markers, licenses, URLs and editable or VCS metadata;
+- PEP 751 lock files and requirements files supplied to resolver subcommands;
+- package-index responses and artifacts processed during resolution;
+- interpreter paths and the response returned by an interpreter queried with `--python`;
+- labels and links sent to JSON, CycloneDX, Mermaid and Graphviz renderers;
+- Graphviz output bytes, terminal dimensions, encodings and Python streams.
 
-An explicitly selected interpreter and package index are trusted choices. Package metadata is data even when the
-installed package's code is never imported, so malformed metadata must not execute code or escape the requested output.
-
-
-
-## Components to examine
-
-Prioritize metadata parsing in `rust/src/metadata/`, lock and requirement parsing, graph cycle handling, index
-resolution and the process abstraction. Check every parser for bounded allocation and recursion on long fields, many
-packages, deep graphs, cycles and duplicate metadata. Directory walks and package-size calculation must not follow
-symlinks out of an environment or loop indefinitely.
-
-Review output escaping separately for JSON/CycloneDX, Mermaid and Graphviz. Package-controlled labels, URLs and license
-text must remain data. Graphviz invocation must use a fixed executable and argument array, write only the requested
-output, and handle binary output without interpreting it as terminal text. `_runner.py` writes undecodable binary output
-to a temporary file and asks the desktop to open it; check suffix selection, permissions and content-type confusion.
-
-Interpreter probing executes the selected Python to obtain paths and marker values. Auto-detection must not select a
-working-directory executable or turn returned strings into command arguments. The Rust/Python boundary should convert
-errors without panics, use-after-free or uncaught unwinds.
+An interpreter selected with `--python`, the selected package index, a Graphviz executable on trusted `PATH` and the
+desktop opener are operator choices. Reports must separate pipdeptree's use of them from their own behavior.
 
 
 
-## Exercising the image
+## Components to prioritize
 
-The source is at `/src`, built with Rust and installed in editable mode in `/opt/venv`. A wheel is available under
-`/opt/wheels`. Run `python -m pytest tests`. Create hostile fixtures by placing handcrafted `.dist-info` directories in
-a temporary path and invoking `pipdeptree --path <path>`; use local requirements and lock files for resolver tests.
+Review `rust/src/metadata.rs` and `rust/src/metadata/` for parsing and directory traversal. `direct_url.json`,
+editable-install records and VCS metadata must remain data. Package-size calculation and path discovery must not follow
+symlinks out of the selected environment or loop through a hostile tree.
 
-The scan has no network. Package-index behavior should use a local fixture or mocked process response. Graphviz may be
-installed during a reproduction if its parser is relevant, but the report must distinguish pipdeptree argument handling
-from a Graphviz vulnerability.
+Inspect `rust/src/graph/`, `lock.rs`, `index.rs`, `environment.rs` and `process.rs` for cycle handling, marker
+evaluation, interpreter probing and resolver subprocess arguments. Bound allocations and recursion for long fields, many
+packages, duplicate records and deep cyclic graphs. A relative interpreter request must not select an executable from
+the working directory ahead of the documented search order.
 
+Review each renderer under `rust/src/render/`. JSON and CycloneDX require valid structured output; Mermaid and Graphviz
+require context-specific escaping of package-controlled labels, URLs and license text. Graphviz invocation must use a
+fixed argv boundary. `_runner.py` may write binary output to a temporary file and open it on the desktop, so check its
+suffix, permissions, cleanup and treatment of attacker-controlled bytes.
 
-
-## Severity guidance
-
-- High: merely inspecting package metadata or a lock file executes a command, writes outside an explicitly requested
-  output path, or triggers memory corruption across the Rust/Python boundary.
-- Medium: crafted metadata makes Graphviz or the desktop opener process an unintended local file or option, directory
-  traversal exposes files outside the selected environment, or a small input causes sustained resource exhaustion.
-- Low: crashes, malformed output, false dependency reports, or resource use proportional to a genuinely large
-  environment.
-
-Reports should include the command, complete metadata or lock fixture, output mode, interpreter and platform. Prefer a
-test that does not require installing attacker code.
+At the Rust/Python boundary, malformed input should become an ordinary error, not an uncaught panic, invalid lifetime or
+memory-safety defect. A dependency defect belongs here only when pipdeptree misuses the dependency or exposes a new
+reachable impact.
 
 
 
-## Out of scope
+## How to exercise the image
 
-- Code execution by an interpreter explicitly named with `--python` or a Graphviz executable already replaced on `PATH`
-  by the user.
-- Malicious package installation; the relevant boundary is inspection after installation without importing it.
-- Incorrect or malicious dependency data returned faithfully from the selected package index.
-- Vulnerabilities wholly inside Graphviz, a package index client or the operating system's desktop opener.
-- Cosmetic graph layout differences and dependency conflicts pipdeptree correctly reports.
+The image contains the source at `/src`, the built Rust extension, pipdeptree in `/opt/venv`, a wheel under
+`/opt/wheels` and Graphviz. Run `python -m pytest tests`.
+
+Create a temporary directory containing handcrafted `.dist-info` trees and invoke `pipdeptree --path <path>`. Use local
+requirements and lock files for resolver cases. Test every output format with the same hostile names. For interpreter
+probing, provide an executable fixture that prints controlled output and record the argv. The scan has no network, so
+index cases need a local fixture or mocked process response.
+
+
+
+## Severity
+
+- Critical: inspecting metadata, a lock file or an SBOM-style input executes code from that input without invoking an
+  selected interpreter or renderer.
+- High: parsing or rendering attacker-controlled data writes or reads outside the requested input and output roots, or
+  triggers memory corruption across the Rust/Python boundary.
+- Medium: crafted labels or paths make Graphviz or the desktop opener process an unintended local file or option; a
+  small input causes sustained resource exhaustion; or a temporary output exposes sensitive content to another local
+  user.
+- Low: a bounded crash, malformed graph, false dependency result or resource use proportional to a large environment.
+
+
+
+## Reports and exclusions
+
+Include the pipdeptree commit, command, complete metadata or lock fixture, interpreter, output format, platform, spawned
+argv and resulting files. Prefer a reproducer that does not install or import attacker code.
+
+Do not report:
+
+- code execution by an interpreter selected with `--python` or by a Graphviz binary already replaced on trusted `PATH`;
+- malicious behavior during package installation;
+- dependency data that pipdeptree reproduces from metadata or the selected index;
+- false positives, false negatives or dependency conflicts without a separate security impact;
+- a vulnerability in Graphviz, an index client or the operating system's desktop opener that reproduces without
+  pipdeptree.
