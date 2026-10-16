@@ -3,8 +3,6 @@
 The authoritative reporting policy is `.github/SECURITY.md`. It supports current pipx releases and directs private
 reports to Tidelift.
 
-
-
 ## What pipx does and where untrusted input enters
 
 pipx installs Python applications into per-environment virtual environments and exposes their commands, manual pages and
@@ -32,8 +30,6 @@ Directory overrides, custom indexes, passthrough installer arguments and interpr
 trusts. A report must show that pipx selects something else, changes an unrelated path, or violates a documented
 integrity check.
 
-
-
 ## Components to prioritize
 
 Review `package_specifier.py`, `interpreter.py`, `backends/pip.py`, `backends/uv.py` and `commands/execute.py` for
@@ -54,8 +50,6 @@ archive restoration.
 `commands/ensure_path.py` edits shell startup files. It must choose the requested file, preserve unrelated content and
 avoid following an attacker-controlled path across a user boundary.
 
-
-
 ## How to exercise the image
 
 The repository is at `/src`, installed in `/opt/venv` with the uv extra and test group. Run
@@ -66,8 +60,6 @@ Build a small wheel with crafted entry points and data files, then set every `PI
 Place sentinels and symlinks around the managed roots and record changes after install, expose, upgrade, manifest and
 uninstall operations. For standalone Python, use a local HTTP fixture and an archive with a controlled digest; do not
 contact a public package index in a reproducer.
-
-
 
 ## Severity
 
@@ -81,8 +73,6 @@ contact a public package index in a reproducer.
   attacker-selected file.
 - Low: denial of service, stale links, incorrect listings or corruption confined to the disposable environment of the
   requested package.
-
-
 
 ## Reports and exclusions
 
