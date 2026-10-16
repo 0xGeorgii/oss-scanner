@@ -59,17 +59,19 @@ author's or a Connection configuration user's privileges (see "Anything to leave
 
 ## How to exercise it
 
-The repository is at `/src`; `uv sync --package apache-airflow-core` installed airflow-core, the Task SDK,
-the test fixtures and several providers into `/src/.venv`. `AIRFLOW_HOME` is `/tmp/airflow-home`.
+The repository is at `/src`; `uv sync --all-packages` installed the whole development environment
+(airflow-core, the Task SDK, every provider, the shared libraries and the test fixtures) into `/src/.venv`,
+which is on `PATH`.
+`uv` is configured not to re-sync or reach the network, so `uv run` and plain `pytest` both use it as is.
+`AIRFLOW_HOME` is `/tmp/airflow-home`.
 
-- Unit tests without a database:
-  `cd /src && uv run --no-sync pytest airflow-core/tests/unit/<path> --skip-db-tests -q`
-- Tests that need the database use SQLite by default: run `uv run --no-sync airflow db migrate` once, then
-  `uv run --no-sync pytest airflow-core/tests/unit/<path> -q`. API route tests are under
+- Unit tests without a database: `cd /src && pytest airflow-core/tests/unit/<path> --skip-db-tests -q`
+  (provider tests: `pytest providers/<name>/tests/unit/<path> --skip-db-tests -q`).
+- Tests that need the database use SQLite by default: run `airflow db migrate` once, then
+  `pytest airflow-core/tests/unit/<path> -q`. API route tests are under
   `airflow-core/tests/unit/api_fastapi/`, and are the best way to show an authorization defect: a test
   client authenticated with a restricted role that gets a 200 where it should get 403.
-- An API server for manual checks: `uv run --no-sync airflow api-server --port 8080` after
-  `airflow db migrate`.
+- An API server for manual checks: `airflow api-server --port 8080` after `airflow db migrate`.
 
 ## How you rate severity
 
