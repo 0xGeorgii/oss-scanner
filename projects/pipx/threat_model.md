@@ -1,86 +1,99 @@
 # Threat model
 
-
-
-## Scope and trust boundary
-
-pipx installs Python applications into per-package virtual environments and exposes their commands, manual pages and
-shell completions into user-facing directories. It can run a package ephemerally, inject dependencies, upgrade or
-reinstall environments, execute pip or uv inside them, install a standalone Python, and import or export manifests.
-
-Packages the user asks pipx to install are trusted to execute arbitrary installation and application code. pipx is not a
-package sandbox. Its security responsibilities are to interpret the requested package and options without argument
-injection, keep one package's metadata and environment from steering operations onto another path, and expose or remove
-only the files it owns.
-
-Hostile or malformed inputs include:
-
-- package specifications, index URLs, requirement files, VCS URLs, editable paths, suffixes, interpreter paths and
-  passthrough installer arguments;
-- package metadata and entry points returned by pip, uv or inspection of an installed environment;
-- manifest and pipx metadata JSON, including old schema versions and values written by another process;
-- application, manual-page and completion filenames chosen by an installed distribution;
-- existing files, directories and symlinks in `PIPX_HOME`, `PIPX_BIN_DIR`, `PIPX_MAN_DIR`, shared-library locations,
-  caches and temporary directories;
-- archive names, redirects and checksums used when downloading standalone Python builds;
-- subprocess output used to decide whether an install, upgrade or inspection succeeded.
-
-Environment variables and explicit CLI options that relocate pipx directories are trusted user configuration. A finding
-should show an effect outside the configured locations or a mismatch between the package the user requested and the code
-pipx selected.
+The authoritative reporting policy is `.github/SECURITY.md`. It supports current pipx releases and directs private
+reports to Tidelift.
 
 
 
-## Components to examine
+## What pipx does and where untrusted input enters
 
-Prioritize `package_specifier.py`, the pip and uv backends, and `commands/install.py`, `run.py`, `inject.py`,
-`upgrade.py`, `reinstall.py` and `execute.py`. Verify that package strings remain one installer argument unless the user
-used an explicit passthrough option, and that interpreter selection cannot be changed by package metadata.
+pipx installs Python applications into per-environment virtual environments and exposes their commands, manual pages and
+shell completions into user-facing directories. It can run a package for one invocation, inject dependencies, upgrade or
+rebuild environments, execute pip or uv, install a standalone Python, and import or export manifests.
 
-Review `venv.py`, `venv_inspect.py` and `pipx_metadata_file.py` for trust in installed metadata. Path-sensitive code in
-`commands/expose.py`, `commands/uninstall.py`, `commands/transaction.py`, `paths.py` and `shared_libs.py` must handle
-pre-existing symlinks, partial transactions and concurrent pipx processes without overwriting or deleting unrelated
-files. Application names such as `../tool`, absolute paths, reserved names and collisions need explicit tests.
+pipx trusts packages selected by the user to run arbitrary installation and application code. Like virtualenv, pipx does
+not sandbox that code. Its boundaries are package and interpreter selection, installer argv, ownership of managed
+environments, exposure of package files, transaction recovery, downloaded-interpreter integrity and edits to shell
+configuration.
 
-`standalone_python.py` and cache handling deserve supply-chain review: redirects, archive selection, integrity checks,
-extraction paths, permissions and replacement of an existing interpreter. `ensure_path` edits shell configuration, so it
-must select and modify only the intended file.
+Untrusted or malformed inputs include:
 
+- package specifications, requirement files, VCS and file URLs, editable paths, suffixes, index URLs, interpreter
+  requests and explicit installer options;
+- distribution metadata, entry points, editable-install metadata, manual pages and completion files returned after
+  installation;
+- pipx metadata and manifest JSON, including older schemas and files changed by another process;
+- existing paths and symlinks in `PIPX_HOME`, `PIPX_BIN_DIR`, `PIPX_MAN_DIR`, completion directories, shared libraries,
+  caches and transaction backups;
+- the release index, redirects, archive and digest used by `standalone_python.py`;
+- installer and interpreter output used to determine whether an operation succeeded.
 
-
-## Exercising the image
-
-The repository is installed from `/src` into `/opt/venv` with the uv extra and test group. Run
-`python -m pytest tests -n auto`. Tests use temporary pipx homes, local package fixtures and a local package server. For
-offline reproductions, build a minimal wheel with crafted entry points, then set every `PIPX_*` directory to a temporary
-tree containing attacker-controlled symlinks.
-
-Avoid public package indexes in a proof of concept. A local wheel or fixture makes clear whether pipx or the installer
-caused the behavior.
-
-
-
-## Severity guidance
-
-- Critical: pipx accepts one package specification but fetches and executes a different attacker-selected package or
-  standalone interpreter under default index and verification settings, with no prior attacker code execution.
-- High: crafted package metadata or a filesystem entry makes pipx overwrite, expose or delete a file outside its
-  configured directories; installer argument injection changes the requested package or index; or a standalone Python
-  archive escapes its destination.
-- Medium: one unprivileged local user can replace another user's exposed application through a pipx race or unsafe
-  permissions, or a malformed manifest redirects an operation to the wrong managed environment.
-- Low: denial of service, stale links, incorrect listings, or corruption confined to the disposable environment of the
-  package the user asked to install.
-
-Reports should include the command, environment variables, package artifact and metadata, initial filesystem tree and
-the files changed by pipx.
+Directory overrides, custom indexes, passthrough installer arguments and interpreter paths are user choices that pipx
+trusts. A report must show that pipx selects something else, changes an unrelated path, or violates a documented
+integrity check.
 
 
 
-## Out of scope
+## Components to prioritize
 
-- Code execution by a package, dependency, build backend or application the user asked pipx to install or run.
-- Behavior explicitly requested through `--pip-args`, `--uv-args`, a custom index, interpreter or relocated pipx path.
-- A user who can already write all configured pipx directories or the shell configuration being edited.
-- Vulnerabilities wholly inside pip, uv, virtualenv, packaging tools or an installed application.
-- Typosquatting and dependency confusion where pipx passes the requested name and index configuration unchanged.
+Review `package_specifier.py`, `interpreter.py`, `backends/pip.py`, `backends/uv.py` and `commands/execute.py` for
+argument boundaries and precedence. A package specification remains one installer operand unless the user chose a
+passthrough option. Metadata must not change the source interpreter, backend or index selected by the CLI.
+
+Review path ownership in `venv.py`, `pipx_metadata_file.py`, `venv_inspect.py`, `commands/expose.py`,
+`commands/uninstall.py`, `commands/transaction.py`, `commands/manifest.py`, `paths.py` and `shared_libs.py`. Test
+entry-point names containing separators, absolute paths, reserved names and collisions. Exposure and rollback must leave
+files outside the managed environment untouched. Concurrent pipx processes must preserve the same boundary.
+
+`standalone_python.py` downloads a python-build-standalone archive, verifies its SHA-256 digest, rejects escaping
+archive members and links, and swaps a staged interpreter into the cache. Examine redirect and release-index trust,
+resume handling, checksum comparison, tar filters, pre-existing symlinks, backup cleanup and interrupted replacement.
+This path downloads executable code and deserves the same scrutiny that scanner threat models give remote cache and
+archive restoration.
+
+`commands/ensure_path.py` edits shell startup files. It must choose the requested file, preserve unrelated content and
+avoid following an attacker-controlled path across a user boundary.
+
+
+
+## How to exercise the image
+
+The repository is at `/src`, installed in `/opt/venv` with the uv extra and test group. Run
+`python -m pytest tests -n auto`. The suite uses temporary pipx homes, local package fixtures and a local package
+server.
+
+Build a small wheel with crafted entry points and data files, then set every `PIPX_*` directory to a temporary tree.
+Place sentinels and symlinks around the managed roots and record changes after install, expose, upgrade, manifest and
+uninstall operations. For standalone Python, use a local HTTP fixture and an archive with a controlled digest; do not
+contact a public package index in a reproducer.
+
+
+
+## Severity
+
+- Critical: under default trust settings, pipx accepts one package or interpreter request but fetches and executes a
+  different attacker-selected artifact without prior attacker code execution.
+- High: crafted metadata, manifest data, archive entries or a filesystem race makes pipx overwrite, expose or delete a
+  file outside its configured roots; installer argument injection changes the package or index; or standalone Python
+  proceeds after a digest mismatch.
+- Medium: one local user can replace another user's exposed command through supported shared-directory use; a malformed
+  metadata file redirects an operation to another managed environment; or transaction recovery restores an
+  attacker-selected file.
+- Low: denial of service, stale links, incorrect listings or corruption confined to the disposable environment of the
+  requested package.
+
+
+
+## Reports and exclusions
+
+Include the pipx commit, command, environment variables, interpreter, package artifact and metadata, initial filesystem
+tree, spawned installer argv and final files. Identify which input came from the user, package, network or another local
+user.
+
+Do not report:
+
+- execution by a package, dependency, backend or application the user selected;
+- behavior requested through pip/uv arguments, a custom index, a custom interpreter or relocated pipx directories;
+- access by a user who can already write every configured pipx directory and startup file;
+- typosquatting or dependency confusion when pipx preserves the requested name and index;
+- a defect in pip, uv, virtualenv, filelock, packaging tools or an installed application that reproduces without pipx.
