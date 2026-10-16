@@ -3,8 +3,6 @@
 The project's security policy is `.github/SECURITY.md`; it supports the latest major and minor release and routes
 private reports through Tidelift.
 
-
-
 ## What pipdeptree does and where untrusted input enters
 
 pipdeptree discovers installed Python distributions and renders their dependency graph. It can resolve requirements
@@ -30,8 +28,6 @@ Treat these inputs as hostile:
 An interpreter selected with `--python`, the selected package index, a Graphviz executable on trusted `PATH` and the
 desktop opener are operator choices. Reports must separate pipdeptree's use of them from their own behavior.
 
-
-
 ## Components to prioritize
 
 Review `rust/src/metadata.rs` and `rust/src/metadata/` for parsing and directory traversal. `direct_url.json`,
@@ -52,8 +48,6 @@ At the Rust/Python boundary, malformed input should become an ordinary error, no
 memory-safety defect. A dependency defect belongs here only when pipdeptree misuses the dependency or exposes a new
 reachable impact.
 
-
-
 ## How to exercise the image
 
 The image contains the source at `/src`, the built Rust extension, pipdeptree in `/opt/venv`, a wheel under
@@ -63,8 +57,6 @@ Create a temporary directory containing handcrafted `.dist-info` trees and invok
 requirements and lock files for resolver cases. Test every output format with the same hostile names. For interpreter
 probing, provide an executable fixture that prints controlled output and record the argv. The scan has no network, so
 index cases need a local fixture or mocked process response.
-
-
 
 ## Severity
 
@@ -76,8 +68,6 @@ index cases need a local fixture or mocked process response.
   small input causes sustained resource exhaustion; or a temporary output exposes sensitive content to another local
   user.
 - Low: a bounded crash, malformed graph, false dependency result or resource use proportional to a large environment.
-
-
 
 ## Reports and exclusions
 
