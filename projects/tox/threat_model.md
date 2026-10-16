@@ -1,79 +1,98 @@
 # Threat model
 
-
-
-## Scope and trust boundary
-
-tox reads `tox.ini` or `pyproject.toml`, creates and reuses isolated environments, builds the project under test,
-installs dependencies and packages, and executes configured commands. The main paths are configuration loading under
-`src/tox/config/`, environment selection in `session/`, package construction in `tox_env/package/`, installation in
-`tox_env/installer.py`, command execution under `execute/`, and automatic provisioning in `provision.py`.
-
-A repository's tox configuration and source code are trusted to execute arbitrary code. Running tox on an untrusted
-checkout is equivalent to running its test commands and build backend; command execution requested by that checkout is
-not a sandbox escape. Security boundaries remain around data or filesystem effects that exceed what the configuration
-asked tox to do, and around secrets tox promises to redact.
-
-Inputs worth treating as hostile are:
-
-- configuration syntax, substitutions, factors, labels, command argument arrays, environment variable names and values,
-  dependency specifications and package configuration from a checkout;
-- package metadata, wheel and sdist filenames, build-backend output, installer output and subprocess byte streams;
-- paths inside the checkout and work directory, including symlinks planted before environment recreation or cleanup;
-- plugin entry points and inline plugins. Installed plugins are trusted code, but malformed metadata must not make tox
-  load a different distribution than the one selected;
-- CI environment variables and credentials that must not appear in command rendering, journals or error reports.
+The reporting policy is `.github/SECURITY.md`. Submit vulnerabilities through GitHub private vulnerability reporting or
+the Tidelift contact described there; do not open a public issue.
 
 
 
-## Components to examine
+## What tox does and where untrusted input enters
 
-Prioritize subprocess construction and streaming in `execute/`, especially shell selection, argument boundaries,
-interrupt handling, terminal behavior and decoding of attacker-controlled output. Review configuration replacement and
-type conversion in `config/` for cases where a value crosses from data into an executable argument or selects an
-unexpected environment.
+tox reads `tox.ini` or `pyproject.toml`, selects Python interpreters, creates and reuses environments, builds the
+project, installs packages and runs configured commands. Configuration loading lives under `src/tox/config/`;
+environment selection under `session/`; package construction under `tox_env/package/`; installation in
+`tox_env/installer.py`; command execution under `execute/`; and automatic self-provisioning in `provision.py`.
 
-Filesystem-sensitive code includes environment recreation, package staging, temporary directories, result journals,
-work-directory cleanup and the virtualenv redirect helper. Check symlink and race behavior before recursive deletion or
-replacement. Provisioning must install and re-exec the requested tox requirement without losing the original argument
-boundaries or selecting an unintended interpreter.
+Project configuration is code. A checkout can name commands, build backends, dependencies, package indexes and plugins
+that execute with the user's privileges. Running tox on an untrusted checkout is therefore equivalent to running that
+checkout. As in other build frontends, arbitrary behavior requested by configuration is not an escape from a sandbox:
+tox provides no operating-system sandbox.
 
-Secret handling in `util/redact.py`, reporting and journals matters when a failing command includes credentials in an
-URL or environment value. Package managers, build backends, virtualenv and user plugins are dependencies; defects in
-their internals are out of scope unless tox supplies unsafe arguments or mishandles their output.
+Security boundaries remain where tox transforms data into a command or path, cleans files outside the requested
+workspace, selects code other than the configured package, or exposes a secret it promises to redact. Inputs to test
+include:
 
+- INI and TOML values, substitutions, factors, labels, `posargs`, command argument arrays, environment-file lines and
+  package configuration;
+- branch names, paths and other CI values passed into substitutions or positional arguments;
+- package metadata, wheel and sdist filenames, backend hook results, installer output and subprocess byte streams;
+- checkout, work and environment trees containing symlinks or files exchanged during recreation and cleanup;
+- plugin metadata and inline-plugin configuration; tox trusts installed plugins as code, but must load the distribution
+  the configuration selected;
+- URLs, tokens and environment values that pass through command rendering, journals, errors or debug output.
 
-
-## Exercising the image
-
-The repository is installed from `/src` into `/opt/venv`, with the completion extra and test dependency group. Run
-`python -m pytest tests`. Focused fixtures under `tests/config`, `tests/execute`, `tests/session` and `tests/tox_env`
-create temporary projects without requiring network access. A useful reproducer is a minimal temporary project plus a
-single tox invocation showing an effect outside its configured work and environment directories.
-
-
-
-## Severity guidance
-
-- Critical: a repository that is only permitted to run a constrained tox command gains code execution in a separate
-  privileged service that treats tox configuration as data. This rating needs a documented caller that establishes that
-  boundary; tox itself does not sandbox project commands.
-- High: tox deletes or overwrites a path outside its work/environment directories through a crafted checkout or symlink,
-  or leaks a CI credential that its redaction rules promise to protect.
-- Medium: argument injection invokes an additional command beyond the configured argv, provisioning selects an
-  unintended package or interpreter, or crafted output causes persistent corruption outside the project workspace.
-- Low: denial of service, terminal escape output with no demonstrated impact, or a failure confined to the disposable
-  tox environment.
-
-Include the tox command, configuration, platform, relevant environment variables and a minimal checkout in reports.
+virtualenv, python-discovery and pyproject-api are adjacent trust domains. Their own threat models trust an interpreter
+that the user selected, a configured build backend and a user-owned cache. A report against tox should identify the
+unsafe argument, path or result handling that tox adds around those dependencies.
 
 
 
-## Out of scope
+## Components to prioritize
 
-- Commands, build backends, package installers or plugins deliberately selected by the project configuration.
-- A dependency package executing code during installation; tox is explicitly an installer frontend.
-- Access by a configured command to the user's files, network or environment. tox environments isolate dependencies, not
-  operating-system privileges.
-- Configuration mistakes, dependency confusion caused solely by an untrusted package index, and unsupported plugins.
-- Release automation, documentation and test-only helpers.
+Review `execute/` for argv construction, Windows quoting, shell selection, working directories, interrupts, terminal
+handling and decoding of hostile output. A configured argument must remain one argument through replacements and
+re-execution. Treat terminal control sequences as low impact unless the report demonstrates a boundary beyond displaying
+command output.
+
+In `config/`, trace each replacement and type conversion until its consumer. Pay particular attention to `set_env.py`,
+positional-argument expansion and TOML versus INI parity. Configuration may request a command, but a data value must not
+create an extra command or option unless the documented syntax grants that power.
+
+Audit environment recreation, package staging, temporary directories, result journals, work-directory cleanup and
+`util/venv_redirect.py` for symlink races and recursive operations outside tox's own roots. `provision.py` must install
+and re-exec the requested tox requirement with the original argv and interpreter constraints. `util/redact.py`, reports
+and journals must not expose credentials that match tox's documented redaction rules.
+
+Tests, documentation and release automation are not production entry points. Use them as fixtures and regression
+locations, not as the sole affected code.
+
+
+
+## How to exercise the image
+
+The checkout is at `/src`; the image installs tox in `/opt/venv` with the completion extra and test dependency group.
+Run `python -m pytest tests`. Focused tests under `tests/config`, `tests/execute`, `tests/session` and `tests/tox_env`
+create temporary projects without network access.
+
+A useful reproducer is a minimal project containing one tox environment and only the crafted value needed for the issue.
+Place sentinels inside and outside `.tox`, record the spawned argv, and show any filesystem effect or disclosed value.
+Run permission and cross-user cases as an unprivileged account because the scanner shell is root.
+
+
+
+## Severity
+
+- Critical: a service that documents tox configuration as non-executable data suffers code execution outside its stated
+  containment. Name that service and its boundary; tox alone makes no such promise.
+- High: a crafted checkout or race makes tox delete, overwrite or disclose a file outside its work, environment and
+  package directories with privileges beyond the attacker's; or tox emits a CI credential covered by its redaction
+  contract.
+- Medium: data crosses an argv boundary and invokes an additional command or option beyond the configuration's
+  documented meaning; provisioning selects an unintended tox package or interpreter; or a journal persists sensitive
+  data outside the project workspace.
+- Low: a crash, hang, terminal effect without demonstrated code execution, or corruption limited to the disposable tox
+  environment.
+
+
+
+## Reports and exclusions
+
+Include the tox commit, platform, command, complete configuration, relevant environment, spawned argv and minimal
+checkout. Identify the least privilege the attacker needs and the path that crosses the boundary.
+
+Do not report:
+
+- commands, backends, installers, indexes, interpreters or plugins selected by project configuration;
+- access by a configured command to the user's files, network or environment;
+- installation-time code execution by a requested package or dependency;
+- dependency confusion caused only by the configured package index;
+- a defect in virtualenv, python-discovery, pyproject-api, pip, uv or a plugin when tox invokes it as documented.
