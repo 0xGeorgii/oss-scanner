@@ -61,6 +61,76 @@ RUN meson setup build-asan --wrap-mode=nofallback --buildtype=debugoptimized \
       -Ddocs=disabled -Dintrospection=disabled -Dexperimental_api=true \
     && meson compile -C build-asan -j "$(nproc)"
 
+ENV ASAN_OPTIONS=allocator_may_return_null=1:abort_on_error=1:detect_leaks=1:symbolize=1 \
+    UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+
+# Keep mutation fuzzing separate from the TAP replay drivers. Setting
+# fuzzer_ldflags also enables HarfBuzz's custom failing allocator, as in OSS-Fuzz.
+# Only build the security fuzzers; Meson's tests run in the two trees above.
+RUN meson setup build-fuzz --wrap-mode=nofallback --buildtype=debugoptimized \
+      --default-library=static -Doptimization=1 \
+      -Db_ndebug=false -Db_sanitize=address,undefined -Db_lundef=false \
+      -Dc_args="-fno-omit-frame-pointer -fsanitize=fuzzer-no-link -fno-sanitize=vptr -fno-sanitize-recover=undefined -DHB_NO_VISIBILITY" \
+      -Dcpp_args="-fno-omit-frame-pointer -fsanitize=fuzzer-no-link -fno-sanitize=vptr -fno-sanitize-recover=undefined -DHB_NO_VISIBILITY" \
+      -Dfuzzer_ldflags=-fsanitize=fuzzer \
+      -Dglib=enabled -Dgobject=enabled -Dfreetype=enabled -Dcairo=enabled \
+      -Dicu=enabled -Dgraphite2=enabled -Dpng=enabled -Dzlib=enabled \
+      -Dsubset=enabled -Draster=enabled -Dvector=enabled -Dgpu=enabled \
+      -Dgpu_demo=disabled -Dtests=enabled -Dutilities=disabled \
+      -Ddocs=disabled -Dintrospection=disabled -Dexperimental_api=true \
+    && meson compile -C build-fuzz -j "$(nproc)" \
+      hb-shape-fuzzer hb-subset-fuzzer hb-raster-fuzzer hb-vector-fuzzer \
+      hb-gpu-fuzzer hb-repacker-fuzzer hb-depend-fuzzer
+
+# Combine upstream's font/graph seeds without overwriting equal basenames.
+# Names are content hashes, so identical inputs are deduplicated as well.
+RUN python3 - <<'PY'
+import hashlib
+from pathlib import Path
+
+def collect(sources, output):
+    destination = Path(output)
+    destination.mkdir(parents=True, exist_ok=True)
+    for directory in sources:
+        for source in sorted(Path(directory).rglob('*')):
+            if source.is_file():
+                data = source.read_bytes()
+                (destination / hashlib.sha256(data).hexdigest()).write_bytes(data)
+    assert any(destination.iterdir()), output
+
+collect([
+    'test/shape/data/in-house/fonts',
+    'test/shape/data/aots/fonts',
+    'test/shape/data/text-rendering-tests/fonts',
+    'test/api/fonts', 'test/fuzzing/fonts', 'test/subset/data/fonts', 'perf/fonts',
+], 'fuzzer_corpus/fonts')
+collect(['test/fuzzing/graphs'], 'fuzzer_corpus/graphs')
+PY
+
+# Exercise each libFuzzer entry point with a small valid seed, both with and
+# without allocation-failure injection. Appending a byte preserves font/graph
+# parsing while selecting the allocator mode via _fuzzing_alloc_state().
+RUN python3 - <<'PY'
+from pathlib import Path
+import subprocess
+
+directory = Path('/tmp/hb-fuzz-smoke')
+directory.mkdir(exist_ok=True)
+font = Path('test/api/fonts/Roboto-Regular.abc.ttf')
+graph = min(Path('test/fuzzing/graphs').iterdir(), key=lambda p: (p.stat().st_size, p.name))
+for target in ['shape', 'subset', 'raster', 'vector', 'gpu', 'repacker', 'depend']:
+    seed = graph if target == 'repacker' else font
+    for mode, marker in [('normal', 0), ('oom', 128)]:
+        sample = directory / f'{target}-{mode}'
+        sample.write_bytes(seed.read_bytes() + bytes([marker]))
+        print(f'Smoke test: hb-{target}-fuzzer ({mode})', flush=True)
+        subprocess.run([
+            f'build-fuzz/test/fuzzing/hb-{target}-fuzzer',
+            '-runs=1', '-timeout=10', '-rss_limit_mb=2048',
+            f'-artifact_prefix={directory}/', str(sample),
+        ], check=True, timeout=30)
+PY
+
 # Preserve test logs and binaries for the audit even if an upstream test fails.
 RUN meson test -C build --print-errorlogs --num-processes 4 \
     || echo "WARNING: HarfBuzz tests reported failures; see build/meson-logs/testlog.txt"
