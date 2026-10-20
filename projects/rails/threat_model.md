@@ -90,8 +90,8 @@ Run `rails-services-start` first. Every framework has its own suite, run from it
 `cd activerecord && bundle exec rake test:postgresql TEST=test/cases/sanitize_test.rb`.
 Integration-style request tests live under `actionpack/test/dispatch/` and `actionpack/test/controller/`;
 `ActionDispatch::IntegrationTest` drives a full middleware stack. Active Storage and Action Mailbox tests boot a
-dummy application under `test/dummy`. Railties' generator and application tests bundle the apps they generate and
-fail without the network; reproduce framework behavior in the other suites instead.
+dummy application under `test/dummy`. Railties' generator and application tests generate and bundle real apps; run a
+single file with `bin/test`, or the whole suite with `bundle exec rake test`, which runs each file in its own process.
 
 ## How we rate severity
 

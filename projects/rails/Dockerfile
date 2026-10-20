@@ -9,9 +9,8 @@
 # Run a framework's tests from its directory, as maintainers do:
 #   cd /src/actionpack && bin/test test/dispatch/request_test.rb
 #   cd /src/activerecord && bundle exec rake test:sqlite3      # or test:postgresql, test:mysql2, test:trilogy
-#
-# Every framework's suite passes offline except railties: its generator, plugin and application tests run
-# `bundle install` in the apps they generate, which needs the network.
+#   cd /src/actiontext && bin/test test/system                 # system tests run headless Chromium or Firefox
+#   cd /src/railties && bundle exec rake test                  # one process per file; railties needs that
 FROM ruby:4.0-trixie
 
 # MYSQL_SOCK points both MySQL adapters' tests at MariaDB's socket. SE_OFFLINE keeps Selenium Manager to the browsers
@@ -35,6 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium chromium-driver firefox-esr \
     && sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen \
     && rm -rf /var/lib/apt/lists/*
+
+# Chromium won't start as root without --no-sandbox; Debian's launcher reads extra flags from /etc/chromium.d.
+RUN echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"' > /etc/chromium.d/no-sandbox
 
 # Action Pack's system tests are driven by headless Firefox. Debian doesn't package geckodriver.
 RUN ln -sf firefox-esr /usr/bin/firefox \
@@ -69,6 +71,18 @@ COPY . /src
 WORKDIR /src
 
 RUN bundle install && yarn install --frozen-lockfile
+
+# Railties' tests generate apps and plugins and bundle them, and those need gems the checkout's lockfile doesn't (a newer
+# puma, say). Bundle a fresh app and plugin now, so the gems are installed and Bundler's cached index resolves to them.
+RUN bundle exec ruby railties/exe/rails new /tmp/app_deps --skip-bundle --skip-git --quiet \
+    && bundle exec ruby railties/exe/rails plugin new /tmp/plugin_deps --skip-bundle --skip-git --quiet \
+    && sed -i 's|^gem "rails".*|gem "rails", path: "/src"|' /tmp/app_deps/Gemfile \
+    && sed -i 's|"TODO[^"]*"|"https://example.com"|g' /tmp/plugin_deps/plugin_deps.gemspec \
+    && sed -i '/^gem "rails"/d' /tmp/plugin_deps/Gemfile \
+    && echo 'gem "rails", path: "/src"' >> /tmp/plugin_deps/Gemfile \
+    && (cd /tmp/app_deps && bundle install) \
+    && (cd /tmp/plugin_deps && bundle install) \
+    && rm -rf /tmp/app_deps /tmp/plugin_deps
 
 # Active Record's database tests connect over local sockets as the current user: root in this image.
 RUN rails-services-start \
